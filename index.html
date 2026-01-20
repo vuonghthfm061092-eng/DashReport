@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=0.8"/>
+<title>Báo Cáo Xử Lý Data</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%}
+body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#f8f9fa;color:#212529;overflow-x:hidden;min-width:1600px}
+.sidebar,.main-content{will-change:width,margin-left}
+.sidebar{position:fixed;left:0;top:0;height:100vh;width:260px;background:linear-gradient(180deg,#1e3a8a 0%,#1e40af 100%);color:#fff;transition:width .35s cubic-bezier(.4,0,.2,1);z-index:1000;box-shadow:2px 0 12px rgba(0,0,0,.15);overflow:hidden}
+.sidebar.collapsed{width:70px}
+.sidebar-header{padding:24px 20px;border-bottom:1px solid rgba(255,255,255,.1);display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:20px;font-weight:700;letter-spacing:.5px;white-space:nowrap;overflow:hidden;transition:opacity .25s}
+.sidebar.collapsed .logo{opacity:0}
+.toggle-btn{background:rgba(255,255,255,.1);border:none;color:white;width:36px;height:36px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.toggle-btn:hover{background:rgba(255,255,255,.2)}
+.nav-menu{padding:20px 0}
+.nav-item{padding:14px 20px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:all .2s;border-left:3px solid transparent;white-space:nowrap}
+.nav-item:hover{background:rgba(255,255,255,.1)}
+.nav-item.active{background:rgba(255,255,255,.15);border-left-color:#fbbf24}
+.nav-icon{font-size:22px;width:24px;text-align:center;flex-shrink:0}
+.nav-text{font-size:15px;font-weight:500;overflow:hidden;transition:opacity .25s}
+.sidebar.collapsed .nav-text{opacity:0;width:0}
+.main-content{margin-left:260px;transition:margin-left .35s cubic-bezier(.4,0,.2,1);min-height:100vh}
+.sidebar.collapsed~.main-content{margin-left:70px}
+.header{background:linear-gradient(135deg,#FFC837 0%,#FF8008 30%,#FF4757 60%,#4169E1 100%);padding:28px 40px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.header h1{font-size:26px;font-weight:700;letter-spacing:.5px}
+.stats-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:20px;padding:30px 40px}
+.stat-card{background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);border-left:4px solid;transition:all .3s}
+.stat-card:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.stat-card.primary{border-color:#1500FC}
+.stat-card.danger{border-color:#DA2028}
+.stat-card.success{border-color:#00FF15}
+.stat-card.orange{border-color:#EC8021}
+.stat-card.warning{border-color:#FAD106}
+.stat-card.info{border-color:#4169E1}
+.stat-value{font-size:28px;font-weight:700;margin-bottom:8px;line-height:1.2}
+.stat-label{font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.container{padding:0 40px 40px}
+.filters{background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:30px}
+.filters-title{font-size:14px;font-weight:700;color:#374151;margin-bottom:16px;text-transform:uppercase;letter-spacing:1px}
+.filters-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.filter-group{display:flex;flex-direction:column;gap:8px}
+.filter-group label{font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px}
+.filter-group select{padding:11px 16px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;background:#fff;cursor:pointer;transition:all .2s;font-weight:500}
+.filter-group select:hover{border-color:#4169E1}
+.filter-group select:focus{outline:none;border-color:#4169E1;box-shadow:0 0 0 3px rgba(65,105,225,.1)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.charts-grid{display:grid;gap:24px;margin-bottom:24px}
+.charts-grid.grid-2{grid-template-columns:repeat(2,1fr)}
+.charts-grid.grid-3{grid-template-columns:repeat(3,1fr)}
+.charts-grid.grid-full{grid-template-columns:1fr}
+.chart-card{background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);transition:all .3s;height:400px;display:flex;flex-direction:column}
+.chart-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.chart-title{font-size:15px;font-weight:700;color:#1f2937;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #f3f4f6;flex-shrink:0}
+.chart-wrapper{flex:1;position:relative;min-height:260px}
+.code-layout{background:#fff;padding:28px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:30px}
+.code-controls{margin-bottom:20px;display:flex;flex-direction:column}
+.control-buttons{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.detail-btn{padding:12px 24px;border:2px solid #e5e7eb;background:#fff;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:all .25s;color:#374151;flex:0 0 auto}
+.detail-btn:hover{border-color:#4169E1;color:#4169E1;transform:translateY(-2px)}
+.detail-btn.active{background:linear-gradient(135deg,#4169E1,#667eea);color:#fff;border-color:#4169E1;box-shadow:0 4px 12px rgba(65,105,225,.3)}
+.code-legend-wrapper{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;max-width:450px}
+.code-table{width:100%;border-collapse:collapse;font-size:10px}
+.code-table thead th{text-align:left;font-size:9px;letter-spacing:.3px;text-transform:uppercase;color:#6b7280;font-weight:800;padding:5px 6px;border-bottom:1px solid #e5e7eb}
+.code-table tbody td{padding:4px 6px;border-bottom:1px solid #f3f4f6;vertical-align:middle;color:#374151;line-height:1.2}
+.code-col-code{width:50px}
+.code-pill{display:inline-flex;align-items:center;font-weight:900;font-size:9px;border-left:3px solid;padding:3px 6px;border-radius:4px;background:#f9fafb}
+.sub-screen{display:none}
+.sub-screen.active{display:block}
+canvas{width:100%!important;height:100%!important;display:block}
+.chart-wrapper{width:100%;height:100%;overflow:hidden}
+</style>
+</head>
+<body>
+<div class="sidebar" id="sidebar">
+<div class="sidebar-header">
+<div class="logo">DSSERVICE</div>
+<button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+</div>
+<div class="nav-menu">
+<div class="nav-item active" onclick="switchTab('tong-quan',this)"><div class="nav-icon">📊</div><div class="nav-text">Tổng Quan</div></div>
+<div class="nav-item" onclick="switchTab('code-case',this)"><div class="nav-icon">📋</div><div class="nav-text">Code</div></div>
+</div>
+</div>
+<div class="main-content">
+<div class="header"><h1>BÁO CÁO XỬ LÝ DATA DSSERVICE</h1></div>
+<div class="stats-grid" id="stats-tong-quan">
+<div class="stat-card primary"><div class="stat-value">69,679</div><div class="stat-label">Total Data</div></div>
+<div class="stat-card danger"><div class="stat-value">83.15%</div><div class="stat-label">Touch Rate</div></div>
+<div class="stat-card success"><div class="stat-value">70.21%</div><div class="stat-label">Connect Rate</div></div>
+<div class="stat-card orange"><div class="stat-value">18.22%</div><div class="stat-label">Application Rate</div></div>
+<div class="stat-card warning"><div class="stat-value">6.17%</div><div class="stat-label">Contract Rate</div></div>
+<div class="stat-card info"><div class="stat-value">144.4B</div><div class="stat-label">Amount Disbursement</div></div>
+</div>
+<div class="stats-grid" id="stats-code" style="display:none;grid-template-columns:repeat(5,1fr)">
+<div class="stat-card primary"><div class="stat-value">69,679</div><div class="stat-label">Total Cases</div></div>
+<div class="stat-card success"><div class="stat-value">15%</div><div class="stat-label">Code Y</div></div>
+<div class="stat-card danger"><div class="stat-value">48%</div><div class="stat-label">Code N</div></div>
+<div class="stat-card warning"><div class="stat-value">1%</div><div class="stat-label">Code Special Attention</div></div>
+<div class="stat-card orange"><div class="stat-value">3.5%</div><div class="stat-label">Code C.B</div></div>
+</div>
+<div class="container">
+<div class="filters">
+<div class="filters-title">Bộ Lọc</div>
+<div class="filters-grid">
+<div class="filter-group"><label>Nguồn</label><select><option>All</option><option>Website</option><option>Tiktok</option><option>Weekend</option><option>Inbound_SCL</option><option>Inbound_Email</option><option>Inbound_CTE</option></select></div>
+<div class="filter-group"><label>Batch</label><select><option>All</option><option>Batch 1</option><option>Batch 2</option><option>Batch 3</option></select></div>
+<div class="filter-group"><label>Nhánh</label><select><option>All</option><option>Nhánh A</option><option>Nhánh B</option><option>Nhánh C</option></select></div>
+<div class="filter-group"><label>Team</label><select><option>All</option><option>Team 1</option><option>Team 2</option><option>Team 3</option></select></div>
+</div>
+</div>
+<div id="tab-tong-quan" class="tab-content active">
+<div class="charts-grid grid-2">
+<div class="chart-card"><div class="chart-title">Xu Hướng Theo Batch</div><div class="chart-wrapper"><canvas id="chartBatch"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng Theo Team</div><div class="chart-wrapper"><canvas id="chartTeam"></canvas></div></div>
+</div>
+<div class="charts-grid grid-full">
+<div class="chart-card"><div class="chart-title">Tỷ Trọng Theo Nguồn Data</div><div class="chart-wrapper"><canvas id="chartNguon"></canvas></div></div>
+</div>
+</div>
+<div id="tab-code-case" class="tab-content">
+<div class="code-layout">
+<div class="code-controls">
+<div class="code-legend-wrapper" style="order:1;margin-bottom:16px">
+<table class="code-table">
+<thead><tr><th class="code-col-code">Code</th><th>Mô tả</th></tr></thead>
+<tbody>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#00FF15;color:#00FF15">Y01</span></td><td>KH có nhu cầu vay, có quan tâm</td></tr>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#EC8021;color:#EC8021">Y02</span></td><td>KH suy nghĩ, xem xét, bàn lại gia đình</td></tr>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#FFD700;color:#FFD700">Y03</span></td><td>KH chưa cần, không có nhu cầu vay</td></tr>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#6c757d;color:#6c757d">Y06</span></td><td>Nội dung khác code Y01/Y02/Y03</td></tr>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#DA2028;color:#DA2028">N00</span></td><td>Không nghe máy, khoá máy</td></tr>
+<tr><td class="code-col-code"><span class="code-pill" style="border-left-color:#9370DB;color:#9370DB">S.A</span></td><td>KH yêu cầu không gọi/không liên hệ</td></tr>
+</tbody>
+</table>
+</div>
+<div class="control-buttons" style="order:2">
+<button class="detail-btn active" onclick="switchSubScreen('overview',this)">📈 Overview</button>
+<button class="detail-btn" onclick="switchSubScreen('n00',this)">📞 N00</button>
+<button class="detail-btn" onclick="switchSubScreen('y01',this)">✅ Y01</button>
+<button class="detail-btn" onclick="switchSubScreen('y02',this)">🤔 Y02</button>
+<button class="detail-btn" onclick="switchSubScreen('sa',this)">🚫 S.A</button>
+</div>
+</div>
+<div id="sub-overview" class="sub-screen active">
+<div class="charts-grid grid-2">
+<div class="chart-card"><div class="chart-title">Tổng Quan Code</div><div class="chart-wrapper"><canvas id="chartCodePie"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng Code Theo Thời Gian</div><div class="chart-wrapper"><canvas id="chartCodeTrend"></canvas></div></div>
+</div>
+<div class="charts-grid grid-full">
+<div class="chart-card"><div class="chart-title">Code Theo Nguồn</div><div class="chart-wrapper"><canvas id="chartCodeBySource"></canvas></div></div>
+</div>
+</div>
+<div id="sub-n00" class="sub-screen">
+<div class="charts-grid grid-2">
+<div class="chart-card"><div class="chart-title">Tổng Quan N00</div><div class="chart-wrapper"><canvas id="chartN00Pie"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng Liên Hệ Khách Hàng</div><div class="chart-wrapper"><canvas id="chartN00Trend"></canvas></div></div>
+</div>
+<div class="charts-grid grid-full">
+<div class="chart-card"><div class="chart-title">Tỷ Lệ Chuyển Đổi Khoản Vay</div><div class="chart-wrapper"><canvas id="chartN00Conversion"></canvas></div></div>
+</div>
+</div>
+<div id="sub-y01" class="sub-screen">
+<div class="charts-grid grid-3">
+<div class="chart-card"><div class="chart-title">Phân Bố Y01</div><div class="chart-wrapper"><canvas id="chartY01"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng Y01</div><div class="chart-wrapper"><canvas id="chartY01Trend"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Y01 Theo Nguồn</div><div class="chart-wrapper"><canvas id="chartY01Source"></canvas></div></div>
+</div>
+</div>
+<div id="sub-y02" class="sub-screen">
+<div class="charts-grid grid-3">
+<div class="chart-card"><div class="chart-title">Phân Bố Y02</div><div class="chart-wrapper"><canvas id="chartY02"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng Y02</div><div class="chart-wrapper"><canvas id="chartY02Trend"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Y02 Theo Nguồn</div><div class="chart-wrapper"><canvas id="chartY02Source"></canvas></div></div>
+</div>
+</div>
+<div id="sub-sa" class="sub-screen">
+<div class="charts-grid grid-3">
+<div class="chart-card"><div class="chart-title">Phân Bố S.A</div><div class="chart-wrapper"><canvas id="chartSA"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">Xu Hướng S.A</div><div class="chart-wrapper"><canvas id="chartSATrend"></canvas></div></div>
+<div class="chart-card"><div class="chart-title">S.A Theo Nguồn</div><div class="chart-wrapper"><canvas id="chartSASource"></canvas></div></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+Chart.register(ChartDataLabels);
+Chart.defaults.font.family="'Segoe UI',sans-serif";
+Chart.defaults.maintainAspectRatio=false;
+Chart.defaults.plugins.legend.position='right';
+Chart.defaults.plugins.legend.align='center';
+Chart.defaults.plugins.legend.labels={boxWidth:14,boxHeight:14,padding:16,usePointStyle:true,pointStyle:'circle'};
+Chart.defaults.plugins.datalabels={display:false};
+
+const batchLabels=['10/2024','11/2024','12/2024','01/2025','02/2025','03/2025','04/2025','05/2025'];
+const teamLabels=['Team 1','Team 2','Team 3','Team 4','Team 5'];
+const chartInstances=[];
+
+function createChart(id,config){
+const el=document.getElementById(id);
+if(!el)return null;
+const chart=new Chart(el,config);
+chartInstances.push(chart);
+return chart;
+}
+
+function resizeAllChartsHard(){
+chartInstances.forEach(chart=>{
+try{chart.resize();chart.update('none');}catch(e){}
+});
+}
+
+function forceResizeCharts(frames=10){
+let count=0;
+const step=()=>{
+resizeAllChartsHard();
+count++;
+if(count<frames)requestAnimationFrame(step);
+};
+requestAnimationFrame(step);
+}
+
+function toggleSidebar(){
+const sidebar=document.getElementById('sidebar');
+const mainContent=document.querySelector('.main-content');
+sidebar.classList.toggle('collapsed');
+void mainContent.offsetHeight;
+forceResizeCharts(15);
+const handleTransitionEnd=(e)=>{
+if(e.propertyName==='margin-left'||e.propertyName==='width'){
+forceResizeCharts(10);
+mainContent.removeEventListener('transitionend',handleTransitionEnd);
+}
+};
+mainContent.addEventListener('transitionend',handleTransitionEnd);
+}
+
+function switchTab(tabName,element){
+document.querySelectorAll('.nav-item').forEach(item=>item.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(content=>content.classList.remove('active'));
+element.classList.add('active');
+document.getElementById('tab-'+tabName).classList.add('active');
+const statsTongQuan=document.getElementById('stats-tong-quan');
+const statsCode=document.getElementById('stats-code');
+if(tabName==='code-case'){
+statsTongQuan.style.display='none';
+statsCode.style.display='grid';
+}else{
+statsTongQuan.style.display='grid';
+statsCode.style.display='none';
+}
+forceResizeCharts(12);
+}
+
+function switchSubScreen(screenName,element){
+document.querySelectorAll('.detail-btn').forEach(btn=>btn.classList.remove('active'));
+document.querySelectorAll('.sub-screen').forEach(screen=>screen.classList.remove('active'));
+element.classList.add('active');
+document.getElementById('sub-'+screenName).classList.add('active');
+forceResizeCharts(12);
+}
+
+const mainContentEl=document.querySelector('.main-content');
+if(window.ResizeObserver&&mainContentEl){
+const ro=new ResizeObserver(()=>resizeAllChartsHard());
+ro.observe(mainContentEl);
+}
+
+window.addEventListener('resize',()=>{resizeAllChartsHard();});
+
+// Chart Batch
+createChart('chartBatch',{
+  type:'bar',
+  data:{
+    labels:batchLabels,
+    datasets:[
+      {label:'Total Data',data:[6200,6300,6500,6800,7000,7200,7400,7600],backgroundColor:'#1500FC',order:2},
+      {label:'Touch Rate',data:[75,78,80,82,84,85,83,86],borderColor:'#DA2028',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Connect Rate',data:[65,68,70,72,74,75,73,76],borderColor:'#00FF15',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Application Rate',data:[15,16,17,18,19,20,18,21],borderColor:'#EC8021',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Contract Rate',data:[5,5.5,6,6.5,7,7.5,7,8],borderColor:'#FAD106',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2}
+    ]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{
+      legend:{
+        display:true,
+        position:'right',
+        align:'center'
+      }
+    },
+    scales:{
+      y:{
+        type:'linear',
+        position:'left',
+        title:{display:false},
+        grid:{display:false},
+        border:{display:false}
+      },
+      y1:{
+        type:'linear',
+        position:'right',
+        title:{display:false},
+        min:0,
+        max:100,
+        grid:{display:false},
+        border:{display:false}
+      },
+      x:{
+        grid:{display:false},
+        border:{display:false}
+      }
+    }
+  }
+});
+
+// Chart Team
+createChart('chartTeam',{
+  type:'bar',
+  data:{
+    labels:teamLabels,
+    datasets:[
+      {label:'Total Data',data:[4000,3800,4200,3900,4100],backgroundColor:'#1500FC',order:2},
+      {label:'Touch Rate',data:[82,80,84,81,83],borderColor:'#DA2028',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Connect Rate',data:[72,70,74,71,73],borderColor:'#00FF15',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Application Rate',data:[18,17,19,18,20],borderColor:'#EC8021',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2},
+      {label:'Contract Rate',data:[6,5.5,6.5,6,7],borderColor:'#FAD106',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2}
+    ]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{
+      legend:{
+        display:true,
+        position:'right',
+        align:'center'
+      }
+    },
+    scales:{
+      y:{
+        type:'linear',
+        position:'left',
+        title:{display:false},
+        grid:{display:false},
+        border:{display:false}
+      },
+      y1:{
+        type:'linear',
+        position:'right',
+        title:{display:false},
+        min:0,
+        max:100,
+        grid:{display:false},
+        border:{display:false}
+      },
+      x:{
+        grid:{display:false},
+        border:{display:false}
+      }
+    }
+  }
+});
+// Chart Nguon
+createChart('chartNguon', {
+  type: 'pie',
+  data: {
+    labels: ['Old', 'New', '4 Kỳ', 'Khác'],
+    datasets: [{ data: [48, 28, 18, 6], backgroundColor: ['#DA2028', '#1500FC', '#EC8021', '#9CA3AF'] }]
+  }
+});
+
+// Code Pie
+createChart('chartCodePie',{type:'doughnut',data:{labels:['N00','Y01','Y02','S.A','Y03','Y06'],datasets:[{data:[48,15,11,1,13,12],backgroundColor:['#DA2028','#00FF15','#ec8021','#9370DB','#FFD700','#6c757d']}]},options:{plugins:{legend:{position:'right',align:'center'},datalabels:{display:true,formatter:(value,ctx)=>{let sum=ctx.dataset.data.reduce((a,b)=>a+b,0);let percentage=(value*100/sum).toFixed(1)+'%';return ctx.chart.data.labels[ctx.dataIndex]+'\n'+percentage;},color:'#fff',font:{weight:'bold',size:11},anchor:'end',align:'end',offset:8}}}});
+
+// Code Trend
+createChart('chartCodeTrend',{type:'line',data:{labels:batchLabels,datasets:[{label:'N00',data:[45,46,48,49,48,47,48,50],borderColor:'#DA2028',backgroundColor:'transparent',tension:0.4},{label:'Y01',data:[14,15,15,16,15,16,15,16],borderColor:'#00FF15',backgroundColor:'transparent',tension:0.4},{label:'Y02',data:[10,11,11,12,11,12,11,12],borderColor:'#ec8021',backgroundColor:'transparent',tension:0.4},{label:'S.A',data:[1,1,1,1,1,1,1,1],borderColor:'#9370DB',backgroundColor:'transparent',tension:0.4}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+// Code By Source
+createChart('chartCodeBySource',{type:'bar',data:{labels:['Website','Tiktok','Weekend','Khác','Inbound_SCL','Inbound_Email','Inbound_CTE'],datasets:[{label:'N00',data:[65,55,70,50,45,60,40],backgroundColor:'#DA2028'},{label:'Y01',data:[20,25,15,30,35,25,30],backgroundColor:'#00FF15'},{label:'Y02',data:[10,12,8,12,13,10,18],backgroundColor:'#ec8021'},{label:'S.A',data:[2,3,2,3,2,2,5],backgroundColor:'#9370DB'},{label:'Y03',data:[2,3,3,3,3,2,5],backgroundColor:'#FFD700'},{label:'Y06',data:[1,2,2,2,2,1,2],backgroundColor:'#6c757d'}]},options:{indexAxis:'y',scales:{x:{stacked:true,title:{display:false},grid:{display:false}},y:{stacked:true,grid:{display:false}}}}});
+
+// N00 Pie
+createChart('chartN00Pie',{type:'doughnut',data:{labels:['Chưa liên hệ','4-5 lần','2-3 lần','1 lần','>5 lần'],datasets:[{data:[2.5,6.5,28.8,57.2,5],backgroundColor:['#DA2028','#1500FC','#FAD106','#EC8021','#00FF15']}]},options:{plugins:{legend:{position:'right',align:'center'},datalabels:{display:true,formatter:(value,ctx)=>{return ctx.chart.data.labels[ctx.dataIndex]+'\n'+value+'%';},color:'#fff',font:{weight:'bold',size:11},anchor:'end',align:'end',offset:8}}}});
+
+// N00 Trend
+createChart('chartN00Trend',{type:'line',data:{labels:['01/2025','02/2025','03/2025','04/2025','05/2025','06/2025','07/2025','08/2025','09/2025','10/2025','11/2025'],datasets:[{label:'Chưa liên hệ',data:[40,38,36,35,33,32,31,30,29,28,27],borderColor:'#DA2028',backgroundColor:'transparent',tension:0.4},{label:'4-5 lần',data:[10,11,12,13,14,15,16,17,18,19,20],borderColor:'#1500FC',backgroundColor:'transparent',tension:0.4},{label:'2-3 lần',data:[15,16,17,18,19,20,21,22,23,24,25],borderColor:'#FAD106',backgroundColor:'transparent',tension:0.4},{label:'1 lần',data:[25,26,27,28,29,30,31,32,33,34,35],borderColor:'#EC8021',backgroundColor:'transparent',tension:0.4},{label:'>5 lần',data:[5,6,7,8,9,10,11,12,13,14,15],borderColor:'#00FF15',backgroundColor:'transparent',tension:0.4}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+// N00 Conversion
+createChart('chartN00Conversion',{type:'bar',data:{labels:['Chưa liên hệ','4-5 lần','2-3 lần','1 lần','>5 lần'],datasets:[{label:'Chuyển đổi thành khoản vay',data:[80,40,25,15,10],backgroundColor:'#1500FC'},{label:'Chưa chuyển đổi thành khoản vay',data:[20,60,75,85,90],backgroundColor:'#DA2028'}]},options:{indexAxis:'y',scales:{x:{stacked:true,max:100,grid:{display:false}},y:{stacked:true,grid:{display:false}}}}});
+
+// Y01
+createChart('chartY01',{type:'doughnut',data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[45,30,20,5],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},options:{plugins:{legend:{position:'right',align:'center'},datalabels:{display:true,formatter:(value,ctx)=>{let sum=ctx.dataset.data.reduce((a,b)=>a+b,0);let percentage=(value*100/sum).toFixed(1)+'%';return ctx.chart.data.labels[ctx.dataIndex]+'\n'+percentage;},color:'#fff',font:{weight:'bold',size:11},anchor:'end',align:'end',offset:8}}}});
+
+createChart('chartY01Trend',{type:'line',data:{labels:batchLabels,datasets:[{label:'Y01 Rate',data:[14,15,15,16,15,16,15,16],borderColor:'#00FF15',backgroundColor:'rgba(0,255,21,.1)',fill:true,tension:.4}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+createChart('chartY01Source',{type:'bar',data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'Y01 Distribution',data:[25,30,20,15,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+// Y02
+createChart('chartY02',{type:'doughnut',data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[50,25,18,7],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},options:{plugins:{legend:{position:'right',align:'center'},datalabels:{display:true,formatter:(value,ctx)=>{let sum=ctx.dataset.data.reduce((a,b)=>a+b,0);let percentage=(value*100/sum).toFixed(1)+'%';return ctx.chart.data.labels[ctx.dataIndex]+'\n'+percentage;},color:'#fff',font:{weight:'bold',size:11},anchor:'end',align:'end',offset:8}}}});
+
+createChart('chartY02Trend',{type:'line',data:{labels:batchLabels,datasets:[{label:'Y02 Rate',data:[10,11,11,12,11,12,11,12],borderColor:'#ec8021',backgroundColor:'rgba(236,128,33,.1)',fill:true,tension:.4}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+createChart('chartY02Source',{type:'bar',data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'Y02 Distribution',data:[20,25,25,20,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+// SA
+createChart('chartSA',{type:'doughnut',data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[60,20,15,5],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},options:{plugins:{legend:{position:'right',align:'center'},datalabels:{display:true,formatter:(value,ctx)=>{let sum=ctx.dataset.data.reduce((a,b)=>a+b,0);let percentage=(value*100/sum).toFixed(1)+'%';return ctx.chart.data.labels[ctx.dataIndex]+'\n'+percentage;},color:'#fff',font:{weight:'bold',size:11},anchor:'end',align:'end',offset:8}}}});
+
+createChart('chartSATrend',{type:'line',data:{labels:batchLabels,datasets:[{label:'S.A Rate',data:[1,1,1,1,1,1,1,1],borderColor:'#9370DB',backgroundColor:'rgba(147,112,219,.1)',fill:true,tension:.4}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+createChart('chartSASource',{type:'bar',data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'S.A Distribution',data:[15,20,30,25,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}});
+
+// Init
+window.addEventListener('load',()=>setTimeout(resizeAllChartsHard,350));
+window.addEventListener('resize', () => resizeAllChartsHard());
+</script>
+</body>
+</html>
