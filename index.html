@@ -205,16 +205,19 @@ canvas{width:100%!important;height:100%!important;display:block}
 
   </div>
 </div>
-
 <script>
 /* ==========================================================
    GLOBAL SETUP
 ========================================================== */
 Chart.register(ChartDataLabels);
+Chart.register({
+  id: 'dummyRegister' // prevent rare plugin merge issues
+});
+
 Chart.defaults.font.family = "'Segoe UI',sans-serif";
 Chart.defaults.maintainAspectRatio = false;
 
-/* Legend chuẩn Power BI style (right + center) */
+/* Legend Power BI style */
 Chart.defaults.plugins.legend = {
   display: true,
   position: 'right',
@@ -230,11 +233,28 @@ Chart.defaults.plugins.legend = {
   }
 };
 
-/* Mặc định tắt datalabels (chỉ bật khi cần) */
+/* ✅ FIX: Title defaults - tránh crash computeTitleHeight */
+Chart.defaults.plugins.title = {
+  display: false,
+  text: '',
+  font: { size: 12, weight: '600' }
+};
+
+/* Tooltip defaults */
+Chart.defaults.plugins.tooltip = { enabled: true };
+
+/* Default datalabels off (pie labels handled by custom plugin) */
 Chart.defaults.plugins.datalabels = { display: false };
 
+/* ✅ FIX: prevent hitRadius undefined */
+Chart.defaults.elements = Chart.defaults.elements || {};
+Chart.defaults.elements.point = Chart.defaults.elements.point || {};
+Chart.defaults.elements.point.hitRadius = 6;
+Chart.defaults.elements.point.hoverRadius = 5;
+Chart.defaults.elements.point.radius = 3;
+
 /* ==========================================================
-   UTILITIES: debounce/throttle + visible check
+   UTILITIES: debounce + visible checks
 ========================================================== */
 function debounce(fn, wait = 200) {
   let t = null;
@@ -247,20 +267,46 @@ function debounce(fn, wait = 200) {
 function isElementVisible(el) {
   if (!el) return false;
   const style = window.getComputedStyle(el);
-  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
   const rect = el.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
 
+/* ✅ Fix core: always inject plugins.title into every chart options
+   => eliminate "t is undefined" forever */
+function withSafePlugins(options = {}) {
+  options.plugins = options.plugins || {};
+
+  // Always force title
+  options.plugins.title = options.plugins.title || {
+    display: false,
+    text: '',
+    font: { size: 12, weight: '600' }
+  };
+
+  // Always force tooltip safe
+  options.plugins.tooltip = options.plugins.tooltip || { enabled: true };
+
+  // Always force legend align
+  if (!options.plugins.legend) {
+    options.plugins.legend = { position: 'right', align: 'center' };
+  } else {
+    if (!options.plugins.legend.position) options.plugins.legend.position = 'right';
+    if (!options.plugins.legend.align) options.plugins.legend.align = 'center';
+  }
+
+  return options;
+}
+
 /* ==========================================================
    PIE OUTSIDE LABELS + LEADER LINE (Power BI style)
-   (Custom plugin: Chart.js core không có leader lines)
 ========================================================== */
 const PieOutsideLabelsPlugin = {
   id: 'pieOutsideLabels',
   afterDatasetsDraw(chart, args, pluginOptions) {
     const type = chart.config.type;
     if (type !== 'pie' && type !== 'doughnut') return;
+
     if (!pluginOptions || pluginOptions.enabled !== true) return;
 
     const meta = chart.getDatasetMeta(0);
@@ -268,10 +314,11 @@ const PieOutsideLabelsPlugin = {
 
     const ctx = chart.ctx;
     const labels = chart.data.labels || [];
-    const dataset = chart.data.datasets[0];
+    const dataset = chart.data.datasets && chart.data.datasets[0];
     if (!dataset || !dataset.data) return;
 
-    const total = dataset.data.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+    const dataArr = dataset.data.map(v => Number(v) || 0);
+    const total = dataArr.reduce((a, b) => a + b, 0) || 1;
 
     const lineColor = pluginOptions.lineColor || '#9CA3AF';
     const textColor = pluginOptions.textColor || '#111827';
@@ -284,7 +331,7 @@ const PieOutsideLabelsPlugin = {
     ctx.lineWidth = 1;
 
     meta.data.forEach((arc, i) => {
-      const value = Number(dataset.data[i] || 0);
+      const value = dataArr[i];
       if (!value) return;
 
       const angle = (arc.startAngle + arc.endAngle) / 2;
@@ -297,7 +344,7 @@ const PieOutsideLabelsPlugin = {
       const my = arc.y + Math.sin(angle) * (r + 14);
 
       const isRight = Math.cos(angle) >= 0;
-      const ex = mx + (isRight ? 18 : -18);
+      const ex = mx + (isRight ? 20 : -20);
       const ey = my;
 
       // leader line
@@ -307,7 +354,7 @@ const PieOutsideLabelsPlugin = {
       ctx.lineTo(ex, ey);
       ctx.stroke();
 
-      // label
+      // label text
       const pct = ((value * 100) / total).toFixed(1) + '%';
       const text = `${labels[i] || ''} ${pct}`.trim();
 
@@ -319,52 +366,54 @@ const PieOutsideLabelsPlugin = {
     ctx.restore();
   }
 };
-
 Chart.register(PieOutsideLabelsPlugin);
 
 /* ==========================================================
-   DATA LABELS
+   DATA (keep original)
 ========================================================== */
 const batchLabels=['10/2024','11/2024','12/2024','01/2025','02/2025','03/2025','04/2025','05/2025'];
 const teamLabels=['Team 1','Team 2','Team 3','Team 4','Team 5'];
 
 /* ==========================================================
-   CHART MANAGER: Lazy init + update visible only
+   CHART MANAGER: Lazy init + resize only visible
 ========================================================== */
 const ChartManager = (() => {
   const instances = new Map(); // id -> Chart
   const factories = new Map(); // id -> () => config
 
-  function setFactory(id, factoryFn) {
-    factories.set(id, factoryFn);
-  }
+  function setFactory(id, fn) { factories.set(id, fn); }
 
   function init(id) {
     if (instances.has(id)) return instances.get(id);
+
     const canvas = document.getElementById(id);
     if (!canvas) return null;
-
-    // CHỈ init khi canvas visible để tránh bug legend/layout
-    if (!isElementVisible(canvas)) return null;
 
     const factory = factories.get(id);
     if (!factory) return null;
 
-    const config = factory();
-    const chart = new Chart(canvas, config);
-    instances.set(id, chart);
-    return chart;
+    // init only after canvas has size
+    if (!isElementVisible(canvas)) return null;
+
+    try {
+      const config = factory();
+      const chart = new Chart(canvas, config);
+      instances.set(id, chart);
+      return chart;
+    } catch (e) {
+      console.error('Init chart failed:', id, e);
+      return null;
+    }
   }
 
-  function initMany(ids) {
-    ids.forEach(id => init(id));
-  }
+  function initMany(ids) { ids.forEach(init); }
 
   function resizeVisible() {
     instances.forEach((chart, id) => {
       const canvas = document.getElementById(id);
       if (!canvas) return;
       if (!isElementVisible(canvas)) return;
+
       try {
         chart.resize();
         chart.update('none');
@@ -372,24 +421,14 @@ const ChartManager = (() => {
     });
   }
 
-  function destroy(id) {
-    const chart = instances.get(id);
-    if (!chart) return;
-    try { chart.destroy(); } catch(e) {}
-    instances.delete(id);
-  }
-
-  return { setFactory, init, initMany, resizeVisible, destroy };
+  return { setFactory, init, initMany, resizeVisible };
 })();
 
-/* debounce resize để tránh giật lag */
 const scheduleResizeVisible = debounce(() => ChartManager.resizeVisible(), 220);
 
 /* ==========================================================
-   FACTORIES (giữ nguyên dữ liệu mẫu như bạn đã dùng)
+   CHART FACTORIES (same data as original)
 ========================================================== */
-
-/* --- Chart Batch (combo) --- */
 ChartManager.setFactory('chartBatch', () => ({
   type:'bar',
   data:{
@@ -402,18 +441,16 @@ ChartManager.setFactory('chartBatch', () => ({
       {label:'Contract Rate',data:[5,5.5,6,6.5,7,7.5,7,8],borderColor:'#FAD106',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2,pointRadius:2}
     ]
   },
-  options:{
+  options: withSafePlugins({
     responsive:true,
-    plugins:{ legend:{ position:'right', align:'center' } },
     scales:{
       y:{type:'linear',position:'left',grid:{display:false},border:{display:false}},
       y1:{type:'linear',position:'right',min:0,max:100,grid:{display:false},border:{display:false}},
       x:{grid:{display:false},border:{display:false}}
     }
-  }
+  })
 }));
 
-/* --- Chart Team (combo) --- */
 ChartManager.setFactory('chartTeam', () => ({
   type:'bar',
   data:{
@@ -426,55 +463,42 @@ ChartManager.setFactory('chartTeam', () => ({
       {label:'Contract Rate',data:[6,5.5,6.5,6,7],borderColor:'#FAD106',backgroundColor:'transparent',type:'line',yAxisID:'y1',order:1,tension:0.4,borderWidth:2,pointRadius:2}
     ]
   },
-  options:{
+  options: withSafePlugins({
     responsive:true,
-    plugins:{ legend:{ position:'right', align:'center' } },
     scales:{
       y:{type:'linear',position:'left',grid:{display:false},border:{display:false}},
       y1:{type:'linear',position:'right',min:0,max:100,grid:{display:false},border:{display:false}},
       x:{grid:{display:false},border:{display:false}}
     }
-  }
+  })
 }));
 
-/* --- Chart Nguon (pie) detail outside --- */
 ChartManager.setFactory('chartNguon', () => ({
-  type: 'pie',
-  data: {
-    labels: ['Old', 'New', '4 Kỳ', 'Khác'],
-    datasets: [{ data: [48, 28, 18, 6], backgroundColor: ['#DA2028', '#1500FC', '#EC8021', '#9CA3AF'] }]
+  type:'pie',
+  data:{
+    labels:['Old','New','4 Kỳ','Khác'],
+    datasets:[{data:[48,28,18,6],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]
   },
-  options: {
+  options: withSafePlugins({
     responsive:true,
-    layout: { padding: { top: 10, bottom: 10, left: 20, right: 110 } },
-    plugins: {
-      legend: { position:'right', align:'center' },
-      datalabels: { display:false },
-      pieOutsideLabels: { enabled:true, lineColor:'#9CA3AF', textColor:'#111827', fontSize:11 }
+    layout:{padding:{top:10,bottom:10,left:20,right:120}},
+    plugins:{
+      pieOutsideLabels:{enabled:true}
     }
-  }
+  })
 }));
 
-/* --- Code Pie (doughnut) --- */
 ChartManager.setFactory('chartCodePie', () => ({
   type:'doughnut',
-  data:{
-    labels:['N00','Y01','Y02','S.A','Y03','Y06'],
-    datasets:[{data:[48,15,11,1,13,12],backgroundColor:['#DA2028','#00FF15','#ec8021','#9370DB','#FFD700','#6c757d']}]
-  },
-  options:{
+  data:{labels:['N00','Y01','Y02','S.A','Y03','Y06'],datasets:[{data:[48,15,11,1,13,12],backgroundColor:['#DA2028','#00FF15','#ec8021','#9370DB','#FFD700','#6c757d']}]},
+  options: withSafePlugins({
     responsive:true,
-    cutout: '62%',
-    layout: { padding: { top: 10, bottom: 10, left: 20, right: 110 } },
-    plugins:{
-      legend:{position:'right',align:'center'},
-      datalabels:{display:false},
-      pieOutsideLabels:{ enabled:true }
-    }
-  }
+    cutout:'62%',
+    layout:{padding:{top:10,bottom:10,left:20,right:120}},
+    plugins:{ pieOutsideLabels:{enabled:true} }
+  })
 }));
 
-/* --- Code Trend --- */
 ChartManager.setFactory('chartCodeTrend', () => ({
   type:'line',
   data:{
@@ -486,10 +510,9 @@ ChartManager.setFactory('chartCodeTrend', () => ({
       {label:'S.A',data:[1,1,1,1,1,1,1,1],borderColor:'#9370DB',backgroundColor:'transparent',tension:0.4,pointRadius:2}
     ]
   },
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 
-/* --- Code By Source --- */
 ChartManager.setFactory('chartCodeBySource', () => ({
   type:'bar',
   data:{
@@ -503,28 +526,15 @@ ChartManager.setFactory('chartCodeBySource', () => ({
       {label:'Y06',data:[1,2,2,2,2,1,2],backgroundColor:'#6c757d'}
     ]
   },
-  options:{indexAxis:'y',scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,grid:{display:false}}}}
+  options: withSafePlugins({indexAxis:'y',scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,grid:{display:false}}}})
 }));
 
-/* --- N00 Pie --- */
 ChartManager.setFactory('chartN00Pie', () => ({
   type:'doughnut',
-  data:{
-    labels:['Chưa liên hệ','4-5 lần','2-3 lần','1 lần','>5 lần'],
-    datasets:[{data:[2.5,6.5,28.8,57.2,5],backgroundColor:['#DA2028','#1500FC','#FAD106','#EC8021','#00FF15']}]
-  },
-  options:{
-    cutout:'62%',
-    layout: { padding: { top: 10, bottom: 10, left: 20, right: 120 } },
-    plugins:{
-      legend:{position:'right',align:'center'},
-      datalabels:{display:false},
-      pieOutsideLabels:{ enabled:true }
-    }
-  }
+  data:{labels:['Chưa liên hệ','4-5 lần','2-3 lần','1 lần','>5 lần'],datasets:[{data:[2.5,6.5,28.8,57.2,5],backgroundColor:['#DA2028','#1500FC','#FAD106','#EC8021','#00FF15']}]},
+  options: withSafePlugins({cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:120}},plugins:{pieOutsideLabels:{enabled:true}}})
 }));
 
-/* --- N00 Trend --- */
 ChartManager.setFactory('chartN00Trend', () => ({
   type:'line',
   data:{
@@ -537,10 +547,9 @@ ChartManager.setFactory('chartN00Trend', () => ({
       {label:'>5 lần',data:[5,6,7,8,9,10,11,12,13,14,15],borderColor:'#00FF15',backgroundColor:'transparent',tension:0.4,pointRadius:2}
     ]
   },
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 
-/* --- N00 Conversion --- */
 ChartManager.setFactory('chartN00Conversion', () => ({
   type:'bar',
   data:{
@@ -550,68 +559,63 @@ ChartManager.setFactory('chartN00Conversion', () => ({
       {label:'Chưa chuyển đổi thành khoản vay',data:[20,60,75,85,90],backgroundColor:'#DA2028'}
     ]
   },
-  options:{indexAxis:'y',scales:{x:{stacked:true,max:100,grid:{display:false}},y:{stacked:true,grid:{display:false}}}}
+  options: withSafePlugins({indexAxis:'y',scales:{x:{stacked:true,max:100,grid:{display:false}},y:{stacked:true,grid:{display:false}}}})
 }));
 
-/* --- Y01 --- */
 ChartManager.setFactory('chartY01', () => ({
   type:'doughnut',
   data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[45,30,20,5],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},
-  options:{cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:110}},plugins:{legend:{position:'right',align:'center'},datalabels:{display:false},pieOutsideLabels:{enabled:true}}}
+  options: withSafePlugins({cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:120}},plugins:{pieOutsideLabels:{enabled:true}}})
 }));
 ChartManager.setFactory('chartY01Trend', () => ({
   type:'line',
   data:{labels:batchLabels,datasets:[{label:'Y01 Rate',data:[14,15,15,16,15,16,15,16],borderColor:'#00FF15',backgroundColor:'rgba(0,255,21,.1)',fill:true,tension:.4,pointRadius:2}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 ChartManager.setFactory('chartY01Source', () => ({
   type:'bar',
   data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'Y01 Distribution',data:[25,30,20,15,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 
-/* --- Y02 --- */
 ChartManager.setFactory('chartY02', () => ({
   type:'doughnut',
   data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[50,25,18,7],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},
-  options:{cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:110}},plugins:{legend:{position:'right',align:'center'},datalabels:{display:false},pieOutsideLabels:{enabled:true}}}
+  options: withSafePlugins({cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:120}},plugins:{pieOutsideLabels:{enabled:true}}})
 }));
 ChartManager.setFactory('chartY02Trend', () => ({
   type:'line',
   data:{labels:batchLabels,datasets:[{label:'Y02 Rate',data:[10,11,11,12,11,12,11,12],borderColor:'#ec8021',backgroundColor:'rgba(236,128,33,.1)',fill:true,tension:.4,pointRadius:2}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 ChartManager.setFactory('chartY02Source', () => ({
   type:'bar',
   data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'Y02 Distribution',data:[20,25,25,20,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 
-/* --- SA --- */
 ChartManager.setFactory('chartSA', () => ({
   type:'doughnut',
   data:{labels:['Old','New','4 Kỳ','Khác'],datasets:[{data:[60,20,15,5],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF']}]},
-  options:{cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:110}},plugins:{legend:{position:'right',align:'center'},datalabels:{display:false},pieOutsideLabels:{enabled:true}}}
+  options: withSafePlugins({cutout:'62%',layout:{padding:{top:10,bottom:10,left:20,right:120}},plugins:{pieOutsideLabels:{enabled:true}}})
 }));
 ChartManager.setFactory('chartSATrend', () => ({
   type:'line',
   data:{labels:batchLabels,datasets:[{label:'S.A Rate',data:[1,1,1,1,1,1,1,1],borderColor:'#9370DB',backgroundColor:'rgba(147,112,219,.1)',fill:true,tension:.4,pointRadius:2}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 ChartManager.setFactory('chartSASource', () => ({
   type:'bar',
   data:{labels:['Website','Tiktok','Weekend','Khác','Inbound'],datasets:[{label:'S.A Distribution',data:[15,20,30,25,10],backgroundColor:['#DA2028','#1500FC','#EC8021','#9CA3AF','#FAD106']}]},
-  options:{scales:{y:{grid:{display:false}},x:{grid:{display:false}}}}
+  options: withSafePlugins({scales:{y:{grid:{display:false}},x:{grid:{display:false}}}})
 }));
 
 /* ==========================================================
-   TAB / SUBSCREEN INIT LISTS (lazy init)
+   TAB/SUBSCREEN LISTS
 ========================================================== */
 const TAB_CHARTS = {
-  'tong-quan': ['chartBatch','chartTeam','chartNguon'],
-  'code-case': [] // chart nằm trong subscreens
+  'tong-quan': ['chartBatch','chartTeam','chartNguon']
 };
-
 const SUB_CHARTS = {
   'overview': ['chartCodePie','chartCodeTrend','chartCodeBySource'],
   'n00': ['chartN00Pie','chartN00Trend','chartN00Conversion'],
@@ -620,15 +624,16 @@ const SUB_CHARTS = {
   'sa': ['chartSA','chartSATrend','chartSASource']
 };
 
+/* ==========================================================
+   INIT CHARTS ACTIVE
+========================================================== */
 function initActiveCharts() {
-  // tab active
   const activeTab = document.querySelector('.tab-content.active');
   if (activeTab && activeTab.id) {
     const tabName = activeTab.id.replace('tab-','');
     ChartManager.initMany(TAB_CHARTS[tabName] || []);
   }
 
-  // subscreen active (nếu đang ở code-case)
   const activeSub = document.querySelector('.sub-screen.active');
   if (activeSub && activeSub.id) {
     const subName = activeSub.id.replace('sub-','');
@@ -639,32 +644,34 @@ function initActiveCharts() {
 }
 
 /* ==========================================================
-   UI EVENTS (Sidebar / Tab / Subscreen)
+   UI EVENTS
 ========================================================== */
-function toggleSidebar(){
+function toggleSidebar() {
   const sidebar=document.getElementById('sidebar');
   sidebar.classList.toggle('collapsed');
 
-  // resize sau transition kết thúc để mượt
   const mainContent=document.querySelector('.main-content');
-  const onEnd = (e) => {
-    if (e.propertyName === 'margin-left') {
-      mainContent.removeEventListener('transitionend', onEnd);
+  const onEnd=(e)=>{
+    if(e.propertyName==='margin-left' || e.propertyName==='width'){
+      mainContent.removeEventListener('transitionend',onEnd);
       initActiveCharts();
     }
   };
-  mainContent.addEventListener('transitionend', onEnd);
+  mainContent.addEventListener('transitionend',onEnd);
+
   scheduleResizeVisible();
 }
 
-function switchTab(tabName,element){
+function switchTab(tabName, element) {
   document.querySelectorAll('.nav-item').forEach(item=>item.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(content=>content.classList.remove('active'));
+
   element.classList.add('active');
   document.getElementById('tab-'+tabName).classList.add('active');
 
   const statsTongQuan=document.getElementById('stats-tong-quan');
   const statsCode=document.getElementById('stats-code');
+
   if(tabName==='code-case'){
     statsTongQuan.style.display='none';
     statsCode.style.display='grid';
@@ -673,28 +680,18 @@ function switchTab(tabName,element){
     statsCode.style.display='none';
   }
 
-  // lazy init chart theo tab
   setTimeout(() => {
-    ChartManager.initMany(TAB_CHARTS[tabName] || []);
-    // nếu chuyển qua code-case -> init subscreen đang active
-    if (tabName === 'code-case') {
-      const sub = document.querySelector('.sub-screen.active');
-      if (sub) {
-        const subName = sub.id.replace('sub-','');
-        ChartManager.initMany(SUB_CHARTS[subName] || []);
-      }
-    }
-    scheduleResizeVisible();
+    initActiveCharts();
   }, 0);
 }
 
-function switchSubScreen(screenName,element){
+function switchSubScreen(screenName, element) {
   document.querySelectorAll('.detail-btn').forEach(btn=>btn.classList.remove('active'));
   document.querySelectorAll('.sub-screen').forEach(screen=>screen.classList.remove('active'));
+
   element.classList.add('active');
   document.getElementById('sub-'+screenName).classList.add('active');
 
-  // lazy init chart theo subscreen
   setTimeout(() => {
     ChartManager.initMany(SUB_CHARTS[screenName] || []);
     scheduleResizeVisible();
@@ -702,7 +699,7 @@ function switchSubScreen(screenName,element){
 }
 
 /* ==========================================================
-   OBSERVERS / RESIZE
+   OBSERVERS + RESIZE
 ========================================================== */
 const mainContentEl=document.querySelector('.main-content');
 if(window.ResizeObserver && mainContentEl){
@@ -712,10 +709,12 @@ if(window.ResizeObserver && mainContentEl){
 window.addEventListener('resize', scheduleResizeVisible);
 
 /* ==========================================================
-   INIT (chỉ init charts visible ban đầu)
+   INIT ON LOAD (2x RAF)
 ========================================================== */
 window.addEventListener('load', () => {
-  initActiveCharts();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => initActiveCharts());
+  });
 });
 </script>
 </body>
